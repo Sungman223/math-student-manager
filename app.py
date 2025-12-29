@@ -209,4 +209,14 @@ elif menu == "학생 관리 (상담/성적)":
                             text_ach = base_ach.mark_text(dy=-15, fontSize=14, color='#ff6c6c', fontWeight='bold').encode(y=alt.Y('성취도점수', scale=y_scale), text='성취도점수')
                             line_ach_avg = base_ach.mark_line(color='gray', strokeDash=[5,5]).encode(y=alt.Y('성취도평균', scale=y_scale))
 
-                            st.altair_chart((line_ach
+                            st.altair_chart((line_ach + point_ach + text_ach + line_ach_avg), use_container_width=True)
+                            
+                            # 총평 보여주기
+                            for i, row in ach_data_only.iterrows():
+                                if row['총평']:
+                                    st.info(f"**[{row['시기']} 총평]**\n\n{row['총평']}")
+
+                    else:
+                        st.warning("선택된 기간이 없습니다.")
+                else:
+                    st.info("입력된 성적 데이터가 없습니다.")
