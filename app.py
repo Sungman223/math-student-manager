@@ -137,6 +137,9 @@ elif menu == "학생 관리 (상담/성적)":
                 weekly_avg = c3.number_input("반 평균", 0, 100, 0)
                 
                 wrong_answers = st.text_input("❌ 오답 문항 번호 (예: 13, 15, 22)", placeholder="틀린 문제 번호를 적으세요")
+                
+                # [추가] 주간 과제용 특이사항
+                weekly_memo = st.text_area("📢 특이사항 (주간 과제 관련)", height=80, placeholder="예: 숙제는 잘 해왔으나 계산 실수가 잦음")
 
                 st.divider()
                 
@@ -147,10 +150,12 @@ elif menu == "학생 관리 (상담/성적)":
                     ach_score = cc1.number_input("성취도 점수 (없으면 0)", 0, 100, 0)
                     ach_avg = cc2.number_input("성취도 반 평균 (없으면 0)", 0, 100, 0)
                 
-                total_review = st.text_area("📝 이번 주 총평")
+                # [변경] 성취도 평가용 총평
+                ach_review = st.text_area("📝 총평 (성취도 평가 관련)", height=100, placeholder="이번 성취도 평가에 대한 종합적인 의견을 적어주세요.")
 
                 if st.form_submit_button("성적 및 평가 저장"):
-                    row_data = [selected_student, period, hw_score, weekly_score, weekly_avg, wrong_answers, ach_score, ach_avg, total_review]
+                    # 데이터 저장 순서: 이름, 시기, 과제, 주간점수, 주간평균, 오답번호, 특이사항, 성취도점수, 성취도평균, 총평
+                    row_data = [selected_student, period, hw_score, weekly_score, weekly_avg, wrong_answers, weekly_memo, ach_score, ach_avg, ach_review]
                     if add_row_to_sheet("weekly", row_data):
                         st.success("데이터 저장 완료!")
 
@@ -173,7 +178,7 @@ elif menu == "학생 관리 (상담/성적)":
                     # 1. 점수 선 (파랑)
                     line_score = base.mark_line(color='#29b5e8').encode(
                         y=alt.Y('주간점수', scale=y_scale), 
-                        tooltip=['시기', '주간점수']
+                        tooltip=['시기', '주간점수', '특이사항']
                     )
                     # 2. 점수 점
                     point_score = base.mark_point(color='#29b5e8', size=100).encode(
@@ -201,7 +206,7 @@ elif menu == "학생 관리 (상담/성적)":
                         # 1. 성취도 점수 선 (빨강)
                         line_ach = base_ach.mark_line(color='#ff6c6c').encode(
                             y=alt.Y('성취도점수', scale=y_scale), 
-                            tooltip=['시기', '성취도점수']
+                            tooltip=['시기', '성취도점수', '총평']
                         )
                         # 2. 점
                         point_ach = base_ach.mark_point(color='#ff6c6c', size=100).encode(
