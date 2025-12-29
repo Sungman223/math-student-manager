@@ -6,9 +6,8 @@ import google.generativeai as genai
 import datetime
 
 # ==========================================
-# [설정 1] 구글 시트 ID로 직접 연결 (가장 확실함)
+# [설정 1] 구글 시트 ID (선생님 시트)
 # ==========================================
-# 선생님의 시트 주소에서 복사한 ID입니다.
 GOOGLE_SHEET_KEY = "1zJHY7baJgoxyFJ5cBduCPVEfQ-pBPZ8jvhZNaPpCLY4"
 
 # ==========================================
@@ -17,7 +16,6 @@ GOOGLE_SHEET_KEY = "1zJHY7baJgoxyFJ5cBduCPVEfQ-pBPZ8jvhZNaPpCLY4"
 @st.cache_resource
 def get_google_sheet_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Secrets에서 정보 가져오기
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
@@ -26,12 +24,10 @@ def get_google_sheet_connection():
 def load_data_from_sheet(worksheet_name):
     try:
         client = get_google_sheet_connection()
-        # [변경점] 이름 대신 ID(Key)로 엽니다. 100% 정확합니다.
         sheet = client.open_by_key(GOOGLE_SHEET_KEY).worksheet(worksheet_name)
         data = sheet.get_all_records()
         return pd.DataFrame(data)
     except Exception as e:
-        # 에러가 나면 화면에 이유를 보여줍니다.
         st.error(f"데이터 불러오기 오류 ({worksheet_name}): {e}")
         return pd.DataFrame()
 
@@ -46,7 +42,7 @@ def add_row_to_sheet(worksheet_name, row_data_list):
         return False
 
 # ==========================================
-# [설정 3] Gemini AI
+# [설정 3] Gemini AI 설정
 # ==========================================
 try:
     genai.configure(api_key=st.secrets["GENAI_API_KEY"])
@@ -60,9 +56,16 @@ except Exception as e:
 st.set_page_config(page_title="강북청솔 학생 관리", layout="wide")
 st.title("👨‍🏫 김성만 선생님의 학생 관리 시스템")
 
+# [세션 상태 초기화] AI가 다듬은 문장을 임시 저장할 공간을 만듭니다.
+if "refined_text" not in st.session_state:
+    st.session_state.refined_text = ""
+
 # 메뉴
 menu = st.sidebar.radio("메뉴", ["학생 관리 (상담/성적)", "신규 학생 등록"])
 
+# ------------------------------------------
+# 1. 신규 학생 등록
+# ------------------------------------------
 if menu == "신규 학생 등록":
     st.header("📝 신규 학생 등록")
     with st.form("new_student"):
@@ -73,56 +76,97 @@ if menu == "신규 학생 등록":
         submit = st.form_submit_button("등록")
 
         if submit and name:
-            # 구글 시트에 바로 저장
             if add_row_to_sheet("students", [name, origin, target, addr]):
                 st.success(f"{name} 학생 등록 완료!")
                 st.balloons()
 
+# ------------------------------------------
+# 2. 학생 관리 (상담/성적)
+# ------------------------------------------
 elif menu == "학생 관리 (상담/성적)":
-    # 학생 명단 불러오기
     df_students = load_data_from_sheet("students")
     
     if df_students.empty:
-        st.warning("등록된 학생이 없거나 시트를 읽지 못했습니다. (시트 첫 줄에 '이름' 등 제목을 적었는지 확인하세요!)")
+        st.warning("등록된 학생이 없습니다. 시트 제목(이름, 등)을 확인하세요.")
     else:
+        # 학생 선택
         student_list = df_students["이름"].tolist()
         selected_student = st.sidebar.selectbox("학생 선택", student_list)
         
-        # 선택된 학생 정보
-        if not df_students.empty:
-            info = df_students[df_students["이름"] == selected_student].iloc[0]
-            st.sidebar.info(f"**{info['이름']}**\n\n🏫 {info['출신중']} ➡️ {info['배정고']}\n🏠 {info['거주지']}")
+        info = df_students[df_students["이름"] == selected_student].iloc[0]
+        st.sidebar.info(f"**{info['이름']}**\n\n🏫 {info['출신중']} ➡️ {info['배정고']}\n🏠 {info['거주지']}")
 
-        tab1, tab2 = st.tabs(["🗣️ 상담 일지", "📊 주간 학습 & 문자"])
+        tab1, tab2 = st.tabs(["🗣️ 상담 일지 (AI 수정)", "📊 주간 학습 & 문자"])
 
-        with tab1: # 상담 탭
+        # --- [탭 1] 상담 일지 (업그레이드 된 부분) ---
+        with tab1:
             st.subheader(f"{selected_student} 상담 기록")
+            
+            # 1. 이전 기록 보기
             df_counsel = load_data_from_sheet("counseling")
-            with st.expander("📂 이전 상담 내역 보기", expanded=True):
+            with st.expander("📂 이전 상담 내역 펼치기"):
                 if not df_counsel.empty:
                     my_logs = df_counsel[df_counsel["이름"] == selected_student]
                     if not my_logs.empty:
-                         # 날짜순 정렬 시도 (날짜 형식이 다르면 에러날 수 있으므로 try 사용)
                         try:
                             my_logs = my_logs.sort_values(by="날짜", ascending=False)
                         except:
                             pass
                         for _, row in my_logs.iterrows():
                             st.markdown(f"**🗓️ {row['날짜']}**")
-                            st.write(row['내용'])
-                            st.divider()
+                            st.info(row['내용']) # 보기 좋게 박스로 표시
                     else:
                         st.caption("기록된 상담이 없습니다.")
+
+            st.divider()
             
+            # 2. 상담 내용 입력 및 AI 변환
             st.write("#### ✍️ 새로운 상담 입력")
             c_date = st.date_input("상담 날짜", datetime.date.today())
-            c_content = st.text_area("상담 내용", height=100)
-            if st.button("상담 저장하기"):
-                if add_row_to_sheet("counseling", [selected_student, str(c_date), c_content]):
-                    st.success("저장되었습니다.")
-                    st.rerun()
+            
+            col_input, col_ai = st.columns([1, 0.2])
+            with col_input:
+                # 선생님이 대충 적는 곳
+                raw_input = st.text_area("상담 메모 (대충 적으세요)", height=100, placeholder="예: 오늘 지각함. 숙제는 다 해왔는데 함수 부분을 어려워함. 다음주 보강 잡기로 함.")
+            
+            with col_ai:
+                st.write("") # 줄맞춤용
+                st.write("")
+                if st.button("🤖 AI 문장\n다듬기"):
+                    if raw_input:
+                        with st.spinner("문장 다듬는 중..."):
+                            prompt = f"""
+                            당신은 베테랑 수학 선생님입니다. 아래 상담 메모를 학부모나 나중에 다시 보기 좋게 정돈된 문장으로 바꿔주세요.
+                            핵심 내용은 빠뜨리지 말되, 말투는 정중하고 명확하게 수정하세요.
+                            
+                            [메모 내용]: {raw_input}
+                            """
+                            response = gemini_model.generate_content(prompt)
+                            # 결과를 임시 저장소에 넣음
+                            st.session_state.refined_text = response.text
+                            st.rerun() # 화면 새로고침해서 결과 보여주기
 
-        with tab2: # 성적 탭
+            # 3. 최종 수정 및 저장
+            st.write("🔻 **최종 저장될 내용 (직접 수정 가능)**")
+            
+            # AI가 만든 문장이 있으면 그걸 보여주고, 없으면 빈칸
+            final_content = st.text_area(
+                "저장하기 전에 내용을 확인하세요", 
+                value=st.session_state.refined_text, 
+                height=150
+            )
+
+            if st.button("💾 상담 내용 최종 저장"):
+                if final_content:
+                    if add_row_to_sheet("counseling", [selected_student, str(c_date), final_content]):
+                        st.success("상담 내용이 안전하게 저장되었습니다.")
+                        st.session_state.refined_text = "" # 저장 후 내용 비우기
+                        st.rerun()
+                else:
+                    st.warning("저장할 내용이 없습니다.")
+
+        # --- [탭 2] 성적 관리 ---
+        with tab2:
             st.subheader("주간 성적 관리")
             col1, col2 = st.columns(2)
             month = col1.selectbox("월", [f"{i}월" for i in range(1, 13)])
@@ -135,9 +179,10 @@ elif menu == "학생 관리 (상담/성적)":
                 score = c2.number_input("학생 점수", 0, 100, 0)
                 avg = c3.number_input("반 평균", 0, 100, 0)
                 memo = st.text_area("특이사항 (선생님 메모)")
+                
                 if st.form_submit_button("성적 저장"):
                     if add_row_to_sheet("weekly", [selected_student, period, hw_score, score, avg, memo]):
-                        st.success("저장 완료!")
+                        st.success("성적 저장 완료!")
 
             df_weekly = load_data_from_sheet("weekly")
             if not df_weekly.empty:
