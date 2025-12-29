@@ -4,6 +4,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
 import altair as alt
+import re  # 정규표현식 사용을 위해 추가
 
 # ==========================================
 # [설정 1] 구글 시트 ID
@@ -30,7 +31,6 @@ def load_data_from_sheet(worksheet_name):
         if not client: return pd.DataFrame()
         sheet = client.open_by_key(GOOGLE_SHEET_KEY).worksheet(worksheet_name)
         data = sheet.get_all_records()
-        # 데이터프레임 변환 시 모든 값을 문자열로 처리하지 않고, 숫자형은 유지
         df = pd.DataFrame(data)
         return df
     except Exception as e:
@@ -57,7 +57,7 @@ st.title("👨‍🏫 김성만 선생님의 학생 관리 시스템")
 menu = st.sidebar.radio("메뉴", ["학생 관리 (상담/성적)", "신규 학생 등록"])
 
 # ------------------------------------------
-# 1. 신규 학생 등록 (반 추가됨)
+# 1. 신규 학생 등록
 # ------------------------------------------
 if menu == "신규 학생 등록":
     st.header("📝 신규 학생 등록")
@@ -72,7 +72,6 @@ if menu == "신규 학생 등록":
         submit = st.form_submit_button("등록")
 
         if submit and name:
-            # 저장 순서: 이름, 반, 출신중, 배정고, 거주지
             if add_row_to_sheet("students", [name, ban, origin, target, addr]):
                 st.success(f"{name} 학생 등록 완료!")
                 st.balloons()
@@ -90,10 +89,7 @@ elif menu == "학생 관리 (상담/성적)":
         student_list = df_students["이름"].tolist()
         selected_student = st.sidebar.selectbox("학생 선택", student_list)
         
-        # 선택된 학생 정보 가져오기
         info = df_students[df_students["이름"] == selected_student].iloc[0]
-        
-        # '반' 정보가 없을 경우 대비
         ban_info = info['반'] if '반' in info else "미지정"
         
         st.sidebar.info(f"**{info['이름']} ({ban_info})**\n\n🏫 {info['출신중']} ➡️ {info['배정고']}\n🏠 {info['거주지']}")
@@ -121,7 +117,6 @@ elif menu == "학생 관리 (상담/성적)":
                         st.caption("기록된 상담이 없습니다.")
 
             st.divider()
-            
             st.write("#### ✍️ 새로운 상담 입력")
             c_date = st.date_input("상담 날짜", datetime.date.today())
             counsel_content = st.text_area("상담 내용을 작성하세요", height=150)
@@ -150,7 +145,7 @@ elif menu == "학생 관리 (상담/성적)":
                 weekly_score = c2.number_input("주간 과제 점수", 0, 100, 0)
                 weekly_avg = c3.number_input("반 평균", 0, 100, 0)
                 
-                wrong_answers = st.text_input("❌ 오답 문항 번호", placeholder="예: 13, 15, 22 (콤마로 구분)")
+                wrong_answers = st.text_input("❌ 오답 문항 번호", placeholder="예: 13 15 22 (띄어쓰기만 해도 됨)")
                 weekly_memo = st.text_area("📢 특이사항 (주간 과제 관련)", height=80, placeholder="예: 계산 실수가 잦음")
 
                 st.divider()
@@ -163,12 +158,10 @@ elif menu == "학생 관리 (상담/성적)":
                 ach_review = st.text_area("📝 총평 (성취도 평가 관련)", height=100, placeholder="종합적인 의견")
 
                 if st.form_submit_button("성적 및 평가 저장"):
-                    # 저장 순서: 이름, 시기, 과제, 주간점수, 주간평균, 오답번호, 특이사항, 성취도점수, 성취도평균, 총평
                     row_data = [selected_student, period, hw_score, weekly_score, weekly_avg, wrong_answers, weekly_memo, ach_score, ach_avg, ach_review]
                     if add_row_to_sheet("weekly", row_data):
                         st.success("데이터 저장 완료!")
 
-            # 차트 미리보기
             st.divider()
             df_weekly = load_data_from_sheet("weekly")
             if not df_weekly.empty:
@@ -178,102 +171,4 @@ elif menu == "학생 관리 (상담/성적)":
                     base = alt.Chart(my_weekly).encode(x=alt.X('시기', sort=None))
                     y_scale = alt.Scale(domain=[0, 100])
                     
-                    line_score = base.mark_line(color='#29b5e8').encode(y=alt.Y('주간점수', scale=y_scale))
-                    point_score = base.mark_point(color='#29b5e8', size=80).encode(y='주간점수')
-                    text_score = base.mark_text(dy=-15, fontSize=12, color='#29b5e8').encode(y='주간점수', text='주간점수')
-                    
-                    st.altair_chart((line_score + point_score + text_score).interactive(), use_container_width=True)
-
-        # --- [탭 3] 학부모 전송용 리포트 ---
-        with tab3:
-            st.header(f"📑 {selected_student} 학생 학습 리포트")
-            st.caption("👇 아래 내용을 캡처해서 학부모님께 보내세요.")
-            st.divider()
-
-            df_weekly_rep = load_data_from_sheet("weekly")
-            
-            if not df_weekly_rep.empty:
-                my_weekly_rep = df_weekly_rep[df_weekly_rep["이름"] == selected_student]
-                
-                if not my_weekly_rep.empty:
-                    # 1. 기간 선택 필터
-                    all_periods = my_weekly_rep["시기"].tolist()
-                    selected_periods = st.multiselect("보여줄 기간을 선택하세요:", all_periods, default=all_periods)
-                    
-                    if selected_periods:
-                        report_data = my_weekly_rep[my_weekly_rep["시기"].isin(selected_periods)]
-
-                        # ----------------------------------------------------
-                        # [그래프 1] 주간 과제 (0~100점 고정, 줌 X)
-                        # ----------------------------------------------------
-                        st.subheader("1️⃣ 주간 과제 성취도")
-                        
-                        base = alt.Chart(report_data).encode(x=alt.X('시기', sort=None))
-                        y_scale = alt.Scale(domain=[0, 100]) # Y축 0~100 고정
-
-                        # 학생 점수 (파랑)
-                        line = base.mark_line(color='#29b5e8').encode(y=alt.Y('주간점수', scale=y_scale))
-                        point = base.mark_point(color='#29b5e8', size=100).encode(y='주간점수')
-                        text = base.mark_text(dy=-15, fontSize=14, color='#29b5e8', fontWeight='bold').encode(y='주간점수', text='주간점수')
-                        
-                        # 반 평균 (회색 점선)
-                        line_avg = base.mark_line(color='gray', strokeDash=[5,5]).encode(y='주간평균')
-                        
-                        # interactive() 제거하여 줌/이동 방지
-                        st.altair_chart((line + point + text + line_avg), use_container_width=True)
-
-                        # ----------------------------------------------------
-                        # [그래프 2] 성취도 평가 (0~100점 고정, 줌 X)
-                        # ----------------------------------------------------
-                        # 성취도 점수가 하나라도 있는 경우에만 그래프 표시
-                        if "성취도점수" in report_data.columns and report_data["성취도점수"].sum() > 0:
-                            st.subheader("2️⃣ 성취도 평가 결과")
-                            
-                            # 성취도 점수가 0보다 큰 데이터만 필터링해서 그래프 그림
-                            ach_data = report_data[report_data["성취도점수"] > 0]
-                            base_ach = alt.Chart(ach_data).encode(x=alt.X('시기', sort=None))
-                            
-                            # 성취도 점수 (빨강)
-                            line_ach = base_ach.mark_line(color='#ff6c6c').encode(y=alt.Y('성취도점수', scale=y_scale))
-                            point_ach = base_ach.mark_point(color='#ff6c6c', size=100).encode(y='성취도점수')
-                            text_ach = base_ach.mark_text(dy=-15, fontSize=14, color='#ff6c6c', fontWeight='bold').encode(y='성취도점수', text='성취도점수')
-                            
-                            # 성취도 평균 (회색 점선)
-                            line_ach_avg = base_ach.mark_line(color='gray', strokeDash=[5,5]).encode(y='성취도평균')
-
-                            # interactive() 제거하여 줌/이동 방지
-                            st.altair_chart((line_ach + point_ach + text_ach + line_ach_avg), use_container_width=True)
-
-                        # ----------------------------------------------------
-                        # [표] 상세 학습 내역 (성취도 점수 포함)
-                        # ----------------------------------------------------
-                        st.subheader("3️⃣ 상세 학습 내역")
-                        
-                        # 보여줄 컬럼 선택 (성취도 점수/평균 추가)
-                        target_cols = ["시기", "과제", "주간점수", "주간평균", "오답번호", "성취도점수", "성취도평균", "특이사항"]
-                        
-                        # 실제 데이터에 존재하는 컬럼만 추리기 (에러 방지)
-                        valid_cols = [c for c in target_cols if c in report_data.columns]
-                        display_df = report_data[valid_cols].copy()
-                        
-                        # 보기 좋게 컬럼 이름 변경
-                        col_map = {
-                            "시기": "시기", 
-                            "과제": "과제(%)", 
-                            "주간점수": "주간점수", 
-                            "주간평균": "주간평균", 
-                            "오답번호": "오답", 
-                            "성취도점수": "성취도",
-                            "성취도평균": "성취도평균",
-                            "특이사항": "코멘트"
-                        }
-                        display_df.rename(columns=col_map, inplace=True)
-                        
-                        # 0점인 성취도 점수는 빈칸이나 하이픈(-)으로 표시하면 더 깔끔하지만, 
-                        # 여기서는 일단 그대로 출력 (원하시면 수정 가능)
-                        st.table(display_df.set_index("시기"))
-
-                    else:
-                        st.warning("선택된 기간이 없습니다.")
-                else:
-                    st.info("입력된 성적 데이터가 없습니다.")
+                    line_
