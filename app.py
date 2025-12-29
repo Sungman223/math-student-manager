@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import google.generativeai as genai
 import datetime
+import altair as alt
 
 # ==========================================
 # [설정 1] 구글 시트 ID
@@ -16,6 +16,7 @@ GOOGLE_SHEET_KEY = "1zJHY7baJgoxyFJ5cBduCPVEfQ-pBPZ8jvhZNaPpCLY4"
 @st.cache_resource
 def get_google_sheet_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    # Secrets에 gcp_service_account 정보는 꼭 있어야 합니다!
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
@@ -41,24 +42,10 @@ def add_row_to_sheet(worksheet_name, row_data_list):
         return False
 
 # ==========================================
-# [설정 3] Gemini AI 설정 (안전한 모델)
-# ==========================================
-try:
-    genai.configure(api_key=st.secrets["GENAI_API_KEY"])
-    # 404 에러 방지를 위해 가장 안정적인 모델 사용
-    gemini_model = genai.GenerativeModel('gemini-pro')
-except Exception as e:
-    st.warning(f"Gemini API 설정 오류: {e}")
-
-# ==========================================
 # 메인 앱 화면
 # ==========================================
 st.set_page_config(page_title="강북청솔 학생 관리", layout="wide")
 st.title("👨‍🏫 김성만 선생님의 학생 관리 시스템")
-
-# [세션 상태 초기화]
-if "refined_text" not in st.session_state:
-    st.session_state.refined_text = ""
 
 # 메뉴
 menu = st.sidebar.radio("메뉴", ["학생 관리 (상담/성적)", "신규 학생 등록"])
@@ -96,15 +83,14 @@ elif menu == "학생 관리 (상담/성적)":
         info = df_students[df_students["이름"] == selected_student].iloc[0]
         st.sidebar.info(f"**{info['이름']}**\n\n🏫 {info['출신중']} ➡️ {info['배정고']}\n🏠 {info['거주지']}")
 
-        tab1, tab2 = st.tabs(["🗣️ 상담 일지 (AI 수정)", "📊 주간 학습 & 성취도"])
+        tab1, tab2 = st.tabs(["🗣️ 상담 일지", "📊 주간 학습 & 성취도"])
 
-        # --- [탭 1] 상담 일지 ---
+        # --- [탭 1] 상담 일지 (AI 제거됨) ---
         with tab1:
             st.subheader(f"{selected_student} 상담 기록")
             
             # 1. 이전 기록 보기
             df_counsel = load_data_from_sheet("counseling")
-            
             with st.expander("📂 이전 상담 내역 펼치기"):
                 if not df_counsel.empty:
                     my_logs = df_counsel[df_counsel["이름"] == selected_student]
@@ -121,46 +107,22 @@ elif menu == "학생 관리 (상담/성적)":
 
             st.divider()
             
-            # 2. 상담 내용 입력 및 AI 변환
+            # 2. 새로운 상담 입력
             st.write("#### ✍️ 새로운 상담 입력")
             c_date = st.date_input("상담 날짜", datetime.date.today())
             
-            col_input, col_ai = st.columns([1, 0.2])
-            with col_input:
-                raw_input = st.text_area("상담 메모 (대충 적으세요)", height=100, placeholder="예: 오늘 지각함. 숙제는 다 해왔는데 함수 부분을 어려워함.")
-            
-            with col_ai:
-                st.write("") 
-                st.write("")
-                if st.button("🤖 AI 문장\n다듬기"):
-                    if raw_input:
-                        with st.spinner("다듬는 중..."):
-                            prompt = f"""
-                            당신은 베테랑 수학 선생님입니다. 아래 상담 메모를 학부모나 나중에 다시 보기 좋게 정돈된 문장으로 바꿔주세요.
-                            핵심 내용은 빠뜨리지 말되, 말투는 정중하고 명확하게 수정하세요.
-                            [메모 내용]: {raw_input}
-                            """
-                            try:
-                                response = gemini_model.generate_content(prompt)
-                                st.session_state.refined_text = response.text
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"AI 오류: {e}")
+            # 심플하게 입력창 하나만!
+            counsel_content = st.text_area("상담 내용을 자유롭게 작성하세요", height=150)
 
-            # 3. 최종 수정 및 저장
-            st.write("🔻 **최종 저장될 내용 (직접 수정 가능)**")
-            final_content = st.text_area("내용 확인", value=st.session_state.refined_text, height=150)
-
-            if st.button("💾 상담 내용 최종 저장"):
-                if final_content:
-                    if add_row_to_sheet("counseling", [selected_student, str(c_date), final_content]):
-                        st.success("저장되었습니다.")
-                        st.session_state.refined_text = "" 
+            if st.button("💾 상담 내용 저장"):
+                if counsel_content:
+                    if add_row_to_sheet("counseling", [selected_student, str(c_date), counsel_content]):
+                        st.success("상담 내용이 저장되었습니다.")
                         st.rerun()
                 else:
-                    st.warning("내용이 없습니다.")
+                    st.warning("내용을 입력해주세요.")
 
-        # --- [탭 2] 성적 관리 (업그레이드) ---
+        # --- [탭 2] 성적 관리 (숫자 표시 그래프) ---
         with tab2:
             st.subheader("📊 주간 과제 & 성취도 평가")
             
@@ -177,28 +139,25 @@ elif menu == "학생 관리 (상담/성적)":
                 weekly_score = c2.number_input("주간 과제 점수", 0, 100, 0)
                 weekly_avg = c3.number_input("반 평균", 0, 100, 0)
                 
-                # 오답 번호 입력
                 wrong_answers = st.text_input("❌ 오답 문항 번호 (예: 13, 15, 22)", placeholder="틀린 문제 번호를 적으세요")
 
                 st.divider()
                 
-                # 성취도 평가 (선택 사항)
+                # 성취도 평가
                 st.write("##### 🏆 성취도 평가 (해당될 때만 입력)")
                 with st.expander("성취도 평가 점수 입력 열기"):
                     cc1, cc2 = st.columns(2)
                     ach_score = cc1.number_input("성취도 점수 (없으면 0)", 0, 100, 0)
                     ach_avg = cc2.number_input("성취도 반 평균 (없으면 0)", 0, 100, 0)
                 
-                # 총평
-                total_review = st.text_area("📝 이번 주 총평 (학생의 태도, 성적 종합 의견)")
+                total_review = st.text_area("📝 이번 주 총평")
 
                 if st.form_submit_button("성적 및 평가 저장"):
-                    # 데이터 저장 순서: 이름, 시기, 과제, 주간점수, 주간평균, 오답번호, 성취도점수, 성취도평균, 총평
                     row_data = [selected_student, period, hw_score, weekly_score, weekly_avg, wrong_answers, ach_score, ach_avg, total_review]
                     if add_row_to_sheet("weekly", row_data):
                         st.success("데이터 저장 완료!")
 
-            # --- 데이터 시각화 ---
+            # --- 데이터 시각화 (숫자 표시 기능 추가) ---
             st.divider()
             df_weekly = load_data_from_sheet("weekly")
             
@@ -206,39 +165,36 @@ elif menu == "학생 관리 (상담/성적)":
                 my_weekly = df_weekly[df_weekly["이름"] == selected_student]
                 
                 if not my_weekly.empty:
-                    # [그래프 1] 주간 점수 변화
+                    # [그래프 1] 주간 점수 변화 (숫자 표시)
                     st.write("#### 📈 주간 과제 점수 추이")
-                    chart_data = my_weekly[["시기", "주간점수", "주간평균"]].set_index("시기")
-                    st.line_chart(chart_data)
                     
-                    # [그래프 2] 성취도 평가 기록 (꺾은선으로 변경 완료!)
+                    # 그래프 데이터 준비
+                    base = alt.Chart(my_weekly).encode(x=alt.X('시기', sort=None))
+
+                    # 학생 점수 (파란색 선 + 점 + 숫자)
+                    line_score = base.mark_line(color='#29b5e8').encode(y='주간점수', tooltip=['시기', '주간점수'])
+                    point_score = base.mark_point(color='#29b5e8', size=100).encode(y='주간점수')
+                    text_score = base.mark_text(dy=-15, fontSize=12, color='#29b5e8').encode(y='주간점수', text='주간점수')
+
+                    # 반 평균 (회색 점선)
+                    line_avg = base.mark_line(color='gray', strokeDash=[5,5]).encode(y='주간평균')
+                    
+                    # 합치기
+                    st.altair_chart((line_score + point_score + text_score + line_avg).interactive(), use_container_width=True)
+                    
+                    # [그래프 2] 성취도 평가 (있을 경우만)
                     if my_weekly["성취도점수"].sum() > 0:
                         st.write("#### 🏆 성취도 평가 기록")
-                        st.line_chart(my_weekly[my_weekly["성취도점수"] > 0][["시기", "성취도점수", "성취도평균"]].set_index("시기"))
+                        ach_data = my_weekly[my_weekly["성취도점수"] > 0]
+                        
+                        base_ach = alt.Chart(ach_data).encode(x=alt.X('시기', sort=None))
+                        
+                        # 성취도 점수 (빨간색 선 + 점 + 숫자)
+                        line_ach = base_ach.mark_line(color='#ff6c6c').encode(y='성취도점수', tooltip=['시기', '성취도점수'])
+                        point_ach = base_ach.mark_point(color='#ff6c6c', size=100).encode(y='성취도점수')
+                        text_ach = base_ach.mark_text(dy=-15, fontSize=12, color='#ff6c6c').encode(y='성취도점수', text='성취도점수')
+                        
+                        # 성취도 평균 (회색 점선)
+                        line_ach_avg = base_ach.mark_line(color='gray', strokeDash=[5,5]).encode(y='성취도평균')
 
-                    # [학부모 문자 생성]
-                    st.write("#### 📩 학부모 전송용 문자 미리보기")
-                    last_rec = my_weekly.iloc[-1]
-                    
-                    # 문자 생성 버튼
-                    if st.button("🤖 Gemini 문자 생성 (성적 포함)"):
-                         prompt = f"""
-                         학부모님께 보낼 문자를 작성해줘. 선생님은 김성만 선생님이야.
-                         
-                         [학생 정보]
-                         - 학생: {selected_student}
-                         - 시기: {last_rec['시기']}
-                         - 과제 수행도: {last_rec['과제']}%
-                         - 주간 과제 점수: {last_rec['주간점수']}점 (반평균 {last_rec['주간평균']}점)
-                         - 오답 문항: {last_rec['오답번호']}
-                         - 성취도 평가: {last_rec['성취도점수']}점 (반평균 {last_rec['성취도평균']}점, 0점이면 언급 X)
-                         - 선생님 총평: {last_rec['총평']}
-                         
-                         정중하고 신뢰감 있는 말투로 작성해줘. 성적이 오르고 있다면 칭찬을, 떨어졌다면 격려를 포함해줘.
-                         """
-                         with st.spinner("문자 작성 중..."):
-                            try:
-                                result = gemini_model.generate_content(prompt).text
-                                st.text_area("생성된 문자", value=result, height=250)
-                            except Exception as e:
-                                st.error(f"AI 오류: {e}")
+                        st.altair_chart((line_ach + point_ach + text_ach + line_ach_avg).interactive(), use_container_width=True)
