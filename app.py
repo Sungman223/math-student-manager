@@ -33,7 +33,7 @@ def load_data_from_sheet(worksheet_name):
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # 숫자형 데이터 안전 변환
+        # 숫자 컬럼 강제 변환
         numeric_cols = ['주간점수', '주간평균', '성취도점수', '성취도평균', '과제']
         for col in numeric_cols:
             if col in df.columns:
@@ -134,20 +134,24 @@ elif menu == "학생 관리 (상담/성적)":
                 w_sc = cc2.number_input("점수", 0, 100, 0)
                 w_av = cc3.number_input("반 평균", 0, 100, 0)
                 
-                # [안내] 띄어쓰기 강조
-                st.info("💡 오답 번호는 **띄어쓰기**로 구분해서 적어주세요! (예: `13 15 22`)")
-                wrong = st.text_input("오답 문항 번호", placeholder="예: 13 15 22 (띄어쓰기 필수!)")
+                st.info("💡 오답 번호는 **띄어쓰기**로 구분해주세요! (예: `8 10` → `8, 10`)")
+                wrong = st.text_input("주간 오답 문항", placeholder="예: 13 15 22")
                 memo = st.text_area("특이사항 (주간 과제 관련)", height=50)
 
                 st.divider()
                 st.write("**[성취도 평가]** (없으면 0)")
-                cc4, cc5 = st.columns(2)
-                a_sc = cc4.number_input("성취도 점수", 0, 100, 0)
-                a_av = cc5.number_input("성취도 평균", 0, 100, 0)
+                with st.expander("성취도 평가 입력 열기", expanded=True):
+                    cc4, cc5 = st.columns(2)
+                    a_sc = cc4.number_input("성취도 점수", 0, 100, 0)
+                    a_av = cc5.number_input("성취도 평균", 0, 100, 0)
+                    # [추가됨] 성취도 오답 입력
+                    a_wrong = st.text_input("성취도 오답 문항", placeholder="예: 21 29 30 (띄어쓰기 필수!)")
+                
                 rev = st.text_area("총평 (성취도 평가 관련)", height=80, placeholder="파란색 박스에 들어갈 내용입니다.")
 
                 if st.form_submit_button("성적 저장"):
-                    row = [selected_student, period, hw, w_sc, w_av, wrong, memo, a_sc, a_av, rev]
+                    # 저장 순서에 a_wrong(성취도오답) 추가
+                    row = [selected_student, period, hw, w_sc, w_av, wrong, memo, a_sc, a_av, a_wrong, rev]
                     if add_row_to_sheet("weekly", row):
                         st.success("저장 완료!")
 
@@ -179,4 +183,55 @@ elif menu == "학생 관리 (상담/성적)":
                         st.altair_chart(l1 + p1 + t1 + l2, use_container_width=True)
 
                         # 2. 그래프 (성취도)
-                        if "성취도점수" in rep.columns and rep["성취도점수"].sum() > 0
+                        if "성취도점수" in rep.columns and rep["성취도점수"].sum() > 0:
+                            st.subheader("2️⃣ 성취도 평가 결과")
+                            ach_d = rep[rep["성취도점수"] > 0]
+                            base_ach = alt.Chart(ach_d).encode(x=alt.X('시기', sort=None))
+                            
+                            al1 = base_ach.mark_line(color='#ff6c6c').encode(y=alt.Y('성취도점수', scale=y_fix))
+                            ap1 = base_ach.mark_point(color='#ff6c6c', size=100).encode(y='성취도점수')
+                            at1 = base_ach.mark_text(dy=-15, fontSize=14, color='#ff6c6c', fontWeight='bold').encode(y='성취도점수', text='성취도점수')
+                            al2 = base_ach.mark_line(color='gray', strokeDash=[5,5]).encode(y='성취도평균')
+                            
+                            st.altair_chart(al1 + ap1 + at1 + al2, use_container_width=True)
+
+                        # 3. 상세 표
+                        st.subheader("3️⃣ 상세 학습 내역")
+                        
+                        # 오답번호 포맷팅 함수 (띄어쓰기 -> 콤마 변환)
+                        def format_wrong_answers(x):
+                            s = str(x).strip()
+                            if not s or s == '0': return ""
+                            parts = re.split(r'[\s,]+', s)
+                            return ', '.join([p for p in parts if p])
+
+                        # 주간 오답 처리
+                        if '오답번호' in rep.columns:
+                            rep['오답번호'] = rep['오답번호'].apply(format_wrong_answers)
+                        
+                        # [NEW] 성취도 오답 처리
+                        if '성취도오답' in rep.columns:
+                            rep['성취도오답'] = rep['성취도오답'].apply(format_wrong_answers)
+
+                        # 표 컬럼 정의 (성취도 오답 추가)
+                        cols = ["시기", "과제", "주간점수", "주간평균", "오답번호", "특이사항", "성취도점수", "성취도평균", "성취도오답"]
+                        real_cols = [c for c in cols if c in rep.columns]
+                        disp = rep[real_cols].copy()
+
+                        rename_map = {
+                            "시기":"시기", "과제":"과제(%)", "주간점수":"점수", "주간평균":"반평균", 
+                            "오답번호":"주간오답", "특이사항":"코멘트", 
+                            "성취도점수":"성취도", "성취도평균":"성취도평균", "성취도오답":"성취도오답"
+                        }
+                        disp.rename(columns=rename_map, inplace=True)
+                        
+                        st.table(disp.set_index("시기"))
+
+                        # 4. 총평 (맨 아래 파란 박스)
+                        for i, r in rep.iterrows():
+                            if r.get('총평'):
+                                st.info(f"**[{r['시기']} 성취도 총평]**\n\n{r['총평']}")
+                    else:
+                        st.warning("기간을 선택해주세요.")
+                else:
+                    st.info("데이터가 없습니다.")
