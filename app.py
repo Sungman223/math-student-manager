@@ -42,12 +42,12 @@ def add_row_to_sheet(worksheet_name, row_data_list):
         return False
 
 # ==========================================
-# [설정 3] Gemini AI 설정 (최신 모델!)
+# [설정 3] Gemini AI 설정 (안전한 모델로 변경)
 # ==========================================
 try:
     genai.configure(api_key=st.secrets["GENAI_API_KEY"])
-    # [수정] 여기가 핵심입니다. 최신 모델 이름으로 고정했습니다.
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    # [수정] 1.5-flash 대신 가장 안정적인 gemini-pro 사용
+    gemini_model = genai.GenerativeModel('gemini-pro')
 except Exception as e:
     st.warning(f"Gemini API 설정 오류: {e}")
 
