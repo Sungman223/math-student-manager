@@ -16,7 +16,6 @@ GOOGLE_SHEET_KEY = "1zJHY7baJgoxyFJ5cBduCPVEfQ-pBPZ8jvhZNaPpCLY4"
 @st.cache_resource
 def get_google_sheet_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Secrets에 gcp_service_account 정보는 꼭 있어야 합니다!
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
@@ -85,7 +84,7 @@ elif menu == "학생 관리 (상담/성적)":
 
         tab1, tab2 = st.tabs(["🗣️ 상담 일지", "📊 주간 학습 & 성취도"])
 
-        # --- [탭 1] 상담 일지 (AI 제거됨) ---
+        # --- [탭 1] 상담 일지 ---
         with tab1:
             st.subheader(f"{selected_student} 상담 기록")
             
@@ -110,8 +109,6 @@ elif menu == "학생 관리 (상담/성적)":
             # 2. 새로운 상담 입력
             st.write("#### ✍️ 새로운 상담 입력")
             c_date = st.date_input("상담 날짜", datetime.date.today())
-            
-            # 심플하게 입력창 하나만!
             counsel_content = st.text_area("상담 내용을 자유롭게 작성하세요", height=150)
 
             if st.button("💾 상담 내용 저장"):
@@ -122,7 +119,7 @@ elif menu == "학생 관리 (상담/성적)":
                 else:
                     st.warning("내용을 입력해주세요.")
 
-        # --- [탭 2] 성적 관리 (숫자 표시 그래프) ---
+        # --- [탭 2] 성적 관리 ---
         with tab2:
             st.subheader("📊 주간 과제 & 성취도 평가")
             
@@ -136,65 +133,4 @@ elif menu == "학생 관리 (상담/성적)":
                 st.write("##### 📝 주간 과제 수행 (Weekly)")
                 c1, c2, c3 = st.columns(3)
                 hw_score = c1.number_input("과제 수행도(%)", 0, 100, 80)
-                weekly_score = c2.number_input("주간 과제 점수", 0, 100, 0)
-                weekly_avg = c3.number_input("반 평균", 0, 100, 0)
-                
-                wrong_answers = st.text_input("❌ 오답 문항 번호 (예: 13, 15, 22)", placeholder="틀린 문제 번호를 적으세요")
-
-                st.divider()
-                
-                # 성취도 평가
-                st.write("##### 🏆 성취도 평가 (해당될 때만 입력)")
-                with st.expander("성취도 평가 점수 입력 열기"):
-                    cc1, cc2 = st.columns(2)
-                    ach_score = cc1.number_input("성취도 점수 (없으면 0)", 0, 100, 0)
-                    ach_avg = cc2.number_input("성취도 반 평균 (없으면 0)", 0, 100, 0)
-                
-                total_review = st.text_area("📝 이번 주 총평")
-
-                if st.form_submit_button("성적 및 평가 저장"):
-                    row_data = [selected_student, period, hw_score, weekly_score, weekly_avg, wrong_answers, ach_score, ach_avg, total_review]
-                    if add_row_to_sheet("weekly", row_data):
-                        st.success("데이터 저장 완료!")
-
-            # --- 데이터 시각화 (숫자 표시 기능 추가) ---
-            st.divider()
-            df_weekly = load_data_from_sheet("weekly")
-            
-            if not df_weekly.empty:
-                my_weekly = df_weekly[df_weekly["이름"] == selected_student]
-                
-                if not my_weekly.empty:
-                    # [그래프 1] 주간 점수 변화 (숫자 표시)
-                    st.write("#### 📈 주간 과제 점수 추이")
-                    
-                    # 그래프 데이터 준비
-                    base = alt.Chart(my_weekly).encode(x=alt.X('시기', sort=None))
-
-                    # 학생 점수 (파란색 선 + 점 + 숫자)
-                    line_score = base.mark_line(color='#29b5e8').encode(y='주간점수', tooltip=['시기', '주간점수'])
-                    point_score = base.mark_point(color='#29b5e8', size=100).encode(y='주간점수')
-                    text_score = base.mark_text(dy=-15, fontSize=12, color='#29b5e8').encode(y='주간점수', text='주간점수')
-
-                    # 반 평균 (회색 점선)
-                    line_avg = base.mark_line(color='gray', strokeDash=[5,5]).encode(y='주간평균')
-                    
-                    # 합치기
-                    st.altair_chart((line_score + point_score + text_score + line_avg).interactive(), use_container_width=True)
-                    
-                    # [그래프 2] 성취도 평가 (있을 경우만)
-                    if my_weekly["성취도점수"].sum() > 0:
-                        st.write("#### 🏆 성취도 평가 기록")
-                        ach_data = my_weekly[my_weekly["성취도점수"] > 0]
-                        
-                        base_ach = alt.Chart(ach_data).encode(x=alt.X('시기', sort=None))
-                        
-                        # 성취도 점수 (빨간색 선 + 점 + 숫자)
-                        line_ach = base_ach.mark_line(color='#ff6c6c').encode(y='성취도점수', tooltip=['시기', '성취도점수'])
-                        point_ach = base_ach.mark_point(color='#ff6c6c', size=100).encode(y='성취도점수')
-                        text_ach = base_ach.mark_text(dy=-15, fontSize=12, color='#ff6c6c').encode(y='성취도점수', text='성취도점수')
-                        
-                        # 성취도 평균 (회색 점선)
-                        line_ach_avg = base_ach.mark_line(color='gray', strokeDash=[5,5]).encode(y='성취도평균')
-
-                        st.altair_chart((line_ach + point_ach + text_ach + line_ach_avg).interactive(), use_container_width=True)
+                weekly_score = c2.number_input("주
