@@ -162,6 +162,7 @@ elif menu == "학생 관리 (상담/성적)":
                 my_weekly = df_weekly[df_weekly["이름"] == selected_student]
                 
                 if not my_weekly.empty:
+                    # [그래프 1] 주간 점수 변화
                     st.write("#### 📈 주간 과제 점수 추이")
                     
                     base = alt.Chart(my_weekly).encode(x=alt.X('시기', sort=None))
@@ -190,9 +191,30 @@ elif menu == "학생 관리 (상담/성적)":
                     
                     st.altair_chart((line_score + point_score + text_score + line_avg), use_container_width=True)
                     
-                    # 성취도 평가 그래프
+                    # [그래프 2] 성취도 평가
                     if my_weekly["성취도점수"].sum() > 0:
                         st.write("#### 🏆 성취도 평가 기록")
                         ach_data = my_weekly[my_weekly["성취도점수"] > 0]
                         
-                        base_ach = alt.Chart(
+                        base_ach = alt.Chart(ach_data).encode(x=alt.X('시기', sort=None))
+                        
+                        # 1. 성취도 점수 선 (빨강)
+                        line_ach = base_ach.mark_line(color='#ff6c6c').encode(
+                            y=alt.Y('성취도점수', scale=y_scale), 
+                            tooltip=['시기', '성취도점수']
+                        )
+                        # 2. 점
+                        point_ach = base_ach.mark_point(color='#ff6c6c', size=100).encode(
+                            y=alt.Y('성취도점수', scale=y_scale)
+                        )
+                        # 3. 숫자
+                        text_ach = base_ach.mark_text(dy=-15, fontSize=12, color='#ff6c6c').encode(
+                            y=alt.Y('성취도점수', scale=y_scale), 
+                            text='성취도점수'
+                        )
+                        # 4. 평균 점선
+                        line_ach_avg = base_ach.mark_line(color='gray', strokeDash=[5,5]).encode(
+                            y=alt.Y('성취도평균', scale=y_scale)
+                        )
+
+                        st.altair_chart((line_ach + point_ach + text_ach + line_ach_avg), use_container_width=True)
