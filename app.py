@@ -133,4 +133,66 @@ elif menu == "학생 관리 (상담/성적)":
                 st.write("##### 📝 주간 과제 수행 (Weekly)")
                 c1, c2, c3 = st.columns(3)
                 hw_score = c1.number_input("과제 수행도(%)", 0, 100, 80)
-                weekly_score = c2.number_input("주
+                weekly_score = c2.number_input("주간 과제 점수", 0, 100, 0)
+                weekly_avg = c3.number_input("반 평균", 0, 100, 0)
+                
+                wrong_answers = st.text_input("❌ 오답 문항 번호 (예: 13, 15, 22)", placeholder="틀린 문제 번호를 적으세요")
+
+                st.divider()
+                
+                # 성취도 평가
+                st.write("##### 🏆 성취도 평가 (해당될 때만 입력)")
+                with st.expander("성취도 평가 점수 입력 열기"):
+                    cc1, cc2 = st.columns(2)
+                    ach_score = cc1.number_input("성취도 점수 (없으면 0)", 0, 100, 0)
+                    ach_avg = cc2.number_input("성취도 반 평균 (없으면 0)", 0, 100, 0)
+                
+                total_review = st.text_area("📝 이번 주 총평")
+
+                if st.form_submit_button("성적 및 평가 저장"):
+                    row_data = [selected_student, period, hw_score, weekly_score, weekly_avg, wrong_answers, ach_score, ach_avg, total_review]
+                    if add_row_to_sheet("weekly", row_data):
+                        st.success("데이터 저장 완료!")
+
+            # --- 데이터 시각화 (0~100점 고정, 줌 끄기, 숫자 표시) ---
+            st.divider()
+            df_weekly = load_data_from_sheet("weekly")
+            
+            if not df_weekly.empty:
+                my_weekly = df_weekly[df_weekly["이름"] == selected_student]
+                
+                if not my_weekly.empty:
+                    st.write("#### 📈 주간 과제 점수 추이")
+                    
+                    base = alt.Chart(my_weekly).encode(x=alt.X('시기', sort=None))
+                    
+                    # Y축 0~100 고정
+                    y_scale = alt.Scale(domain=[0, 100])
+
+                    # 1. 점수 선 (파랑)
+                    line_score = base.mark_line(color='#29b5e8').encode(
+                        y=alt.Y('주간점수', scale=y_scale), 
+                        tooltip=['시기', '주간점수']
+                    )
+                    # 2. 점수 점
+                    point_score = base.mark_point(color='#29b5e8', size=100).encode(
+                        y=alt.Y('주간점수', scale=y_scale)
+                    )
+                    # 3. 점수 숫자
+                    text_score = base.mark_text(dy=-15, fontSize=12, color='#29b5e8').encode(
+                        y=alt.Y('주간점수', scale=y_scale), 
+                        text='주간점수'
+                    )
+                    # 4. 평균 선 (회색 점선)
+                    line_avg = base.mark_line(color='gray', strokeDash=[5,5]).encode(
+                        y=alt.Y('주간평균', scale=y_scale)
+                    )
+                    
+                    st.altair_chart((line_score + point_score + text_score + line_avg), use_container_width=True)
+                    
+                    # 성취도 평가 그래프
+                    if my_weekly["성취도점수"].sum() > 0:
+                        st.write("#### 🏆 성취도 평가 기록")
+                        ach_data = my_weekly[my_weekly["성취도점수"] > 0]
+                        
+                        base_ach = alt.Chart(
