@@ -6,7 +6,7 @@ import google.generativeai as genai
 import datetime
 
 # ==========================================
-# [설정 1] 구글 시트 ID (선생님 시트)
+# [설정 1] 구글 시트 ID
 # ==========================================
 GOOGLE_SHEET_KEY = "1zJHY7baJgoxyFJ5cBduCPVEfQ-pBPZ8jvhZNaPpCLY4"
 
@@ -42,12 +42,12 @@ def add_row_to_sheet(worksheet_name, row_data_list):
         return False
 
 # ==========================================
-# [설정 3] Gemini AI 설정 (최신 모델 적용됨)
+# [설정 3] Gemini AI 설정 (최신 모델!)
 # ==========================================
 try:
     genai.configure(api_key=st.secrets["GENAI_API_KEY"])
-    # [수정] 구형 gemini-pro 대신 최신 gemini-1.5-flash 사용
-    gemini_model = genai.GenerativeModel('gemini-pro')
+    # [수정] 여기가 핵심입니다. 최신 모델 이름으로 고정했습니다.
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
     st.warning(f"Gemini API 설정 오류: {e}")
 
@@ -104,7 +104,6 @@ elif menu == "학생 관리 (상담/성적)":
             st.subheader(f"{selected_student} 상담 기록")
             
             # 1. 이전 기록 보기
-            # [수정됨] 여기가 아까 에러났던 부분입니다! df 대신 정확한 코드를 넣었습니다.
             df_counsel = load_data_from_sheet("counseling")
             
             with st.expander("📂 이전 상담 내역 펼치기"):
@@ -205,4 +204,3 @@ elif menu == "학생 관리 (상담/성적)":
                                 st.text_area("문자 내용", gemini_model.generate_content(prompt).text)
                             except Exception as e:
                                 st.error(f"AI 오류: {e}")
-
