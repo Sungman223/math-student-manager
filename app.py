@@ -41,11 +41,12 @@ def add_row_to_sheet(worksheet_name, row_data_list):
         return False
 
 # ==========================================
-# [설정 3] Gemini AI 설정
+# [설정 3] Gemini AI 설정 (안전한 모델로 변경)
 # ==========================================
 try:
     genai.configure(api_key=st.secrets["GENAI_API_KEY"])
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    # [수정] 404 에러 해결을 위해 가장 안정적인 'gemini-pro' 모델로 변경
+    gemini_model = genai.GenerativeModel('gemini-pro')
 except Exception as e:
     st.warning(f"Gemini API 설정 오류: {e}")
 
@@ -153,93 +154,4 @@ elif menu == "학생 관리 (상담/성적)":
             if st.button("💾 상담 내용 최종 저장"):
                 if final_content:
                     if add_row_to_sheet("counseling", [selected_student, str(c_date), final_content]):
-                        st.success("저장되었습니다.")
-                        st.session_state.refined_text = "" 
-                        st.rerun()
-                else:
-                    st.warning("내용이 없습니다.")
-
-        # --- [탭 2] 성적 관리 (업그레이드) ---
-        with tab2:
-            st.subheader("📊 주간 테스트 & 성취도 평가")
-            
-            # 날짜 및 주기 선택
-            col1, col2 = st.columns(2)
-            month = col1.selectbox("월", [f"{i}월" for i in range(1, 13)])
-            week = col2.selectbox("주차", [f"{i}주차" for i in range(1, 6)])
-            period = f"{month} {week}"
-
-            with st.form("grade_form"):
-                st.write("##### 📝 주간 테스트 (Weekly)")
-                c1, c2, c3 = st.columns(3)
-                hw_score = c1.number_input("과제 수행(%)", 0, 100, 80)
-                weekly_score = c2.number_input("주간 테스트 점수", 0, 100, 0)
-                weekly_avg = c3.number_input("주간 반 평균", 0, 100, 0)
-                
-                # [추가됨] 오답 번호 입력
-                wrong_answers = st.text_input("❌ 오답 문항 번호 (예: 13, 15, 22)", placeholder="틀린 문제 번호를 적으세요")
-
-                st.divider()
-                
-                # [추가됨] 성취도 평가 (선택 사항)
-                st.write("##### 🏆 성취도 평가 (해당될 때만 입력)")
-                with st.expander("성취도 평가 점수 입력 열기"):
-                    cc1, cc2 = st.columns(2)
-                    ach_score = cc1.number_input("성취도 점수 (없으면 0)", 0, 100, 0)
-                    ach_avg = cc2.number_input("성취도 반 평균 (없으면 0)", 0, 100, 0)
-                
-                # [추가됨] 총평
-                total_review = st.text_area("📝 이번 주 총평 (학생의 태도, 성적 종합 의견)")
-
-                if st.form_submit_button("성적 및 평가 저장"):
-                    # 데이터 저장 순서: 이름, 시기, 과제, 주간점수, 주간평균, 오답번호, 성취도점수, 성취도평균, 총평
-                    row_data = [selected_student, period, hw_score, weekly_score, weekly_avg, wrong_answers, ach_score, ach_avg, total_review]
-                    if add_row_to_sheet("weekly", row_data):
-                        st.success("성적 데이터 저장 완료!")
-
-            # --- 데이터 시각화 ---
-            st.divider()
-            df_weekly = load_data_from_sheet("weekly")
-            
-            if not df_weekly.empty:
-                my_weekly = df_weekly[df_weekly["이름"] == selected_student]
-                
-                if not my_weekly.empty:
-                    # [그래프] 주간 점수 변화
-                    st.write("#### 📈 성적 추이 그래프")
-                    
-                    # 그래프용 데이터 정리
-                    chart_data = my_weekly[["시기", "주간점수", "주간평균"]].set_index("시기")
-                    st.line_chart(chart_data)
-                    
-                    # 성취도 평가가 있는 경우만 따로 표시
-                    if my_weekly["성취도점수"].sum() > 0:
-                        st.write("#### 🏆 성취도 평가 기록")
-                        st.bar_chart(my_weekly[my_weekly["성취도점수"] > 0][["시기", "성취도점수", "성취도평균"]].set_index("시기"))
-
-                    # [학부모 문자 생성]
-                    st.write("#### 📩 학부모 전송용 문자 미리보기")
-                    last_rec = my_weekly.iloc[-1]
-                    
-                    # 문자 생성 버튼
-                    if st.button("🤖 Gemini 문자 생성 (성적 포함)"):
-                         prompt = f"""
-                         학부모님께 보낼 문자를 작성해줘. 선생님은 김성만 선생님이야.
-                         
-                         [학생 정보]
-                         - 학생: {selected_student}
-                         - 시기: {last_rec['시기']}
-                         - 과제 수행: {last_rec['과제']}%
-                         - 주간 테스트: {last_rec['주간점수']}점 (반평균 {last_rec['주간평균']}점)
-                         - 오답 문항: {last_rec['오답번호']}
-                         - 성취도 평가: {last_rec['성취도점수']}점 (반평균 {last_rec['성취도평균']}점, 0점이면 언급 X)
-                         - 선생님 총평: {last_rec['총평']}
-                         
-                         정중하고 신뢰감 있는 말투로 작성해줘. 성적이 오르고 있다면 칭찬을, 떨어졌다면 격려를 포함해줘.
-                         """
-                         with st.spinner("문자 작성 중..."):
-                            try:
-                                result = gemini_model.generate_content(prompt).text
-                                st.text_area("생성된 문자", value=result, height=250)
-                            except Exception as e:
-                                st.error(f"AI 오류: {e}")
+                        st.
