@@ -41,11 +41,11 @@ def add_row_to_sheet(worksheet_name, row_data_list):
         return False
 
 # ==========================================
-# [설정 3] Gemini AI 설정 (안전한 모델로 변경)
+# [설정 3] Gemini AI 설정 (안전형 모델)
 # ==========================================
 try:
     genai.configure(api_key=st.secrets["GENAI_API_KEY"])
-    # [수정] 404 에러 해결을 위해 가장 안정적인 'gemini-pro' 모델로 변경
+    # [설정] 404 에러 방지를 위해 가장 안정적인 모델 사용
     gemini_model = genai.GenerativeModel('gemini-pro')
 except Exception as e:
     st.warning(f"Gemini API 설정 오류: {e}")
@@ -154,4 +154,28 @@ elif menu == "학생 관리 (상담/성적)":
             if st.button("💾 상담 내용 최종 저장"):
                 if final_content:
                     if add_row_to_sheet("counseling", [selected_student, str(c_date), final_content]):
-                        st.
+                        st.success("저장되었습니다.")
+                        st.session_state.refined_text = "" 
+                        st.rerun()
+                else:
+                    st.warning("내용이 없습니다.")
+
+        # --- [탭 2] 성적 관리 (업그레이드) ---
+        with tab2:
+            st.subheader("📊 주간 과제 & 성취도 평가")
+            
+            # 날짜 및 주기 선택
+            col1, col2 = st.columns(2)
+            month = col1.selectbox("월", [f"{i}월" for i in range(1, 13)])
+            week = col2.selectbox("주차", [f"{i}주차" for i in range(1, 6)])
+            period = f"{month} {week}"
+
+            with st.form("grade_form"):
+                st.write("##### 📝 주간 과제 수행 (Weekly)")
+                c1, c2, c3 = st.columns(3)
+                hw_score = c1.number_input("과제 수행도(%)", 0, 100, 80)
+                weekly_score = c2.number_input("주간 과제 점수", 0, 100, 0)
+                weekly_avg = c3.number_input("반 평균", 0, 100, 0)
+                
+                # 오답 번호 입력
+                wrong_answers = st.text_input("❌ 오답 문
