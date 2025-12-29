@@ -42,11 +42,12 @@ def add_row_to_sheet(worksheet_name, row_data_list):
         return False
 
 # ==========================================
-# [설정 3] Gemini AI 설정
+# [설정 3] Gemini AI 설정 (모델명 수정됨!)
 # ==========================================
 try:
     genai.configure(api_key=st.secrets["GENAI_API_KEY"])
-    gemini_model = genai.GenerativeModel('gemini-pro')
+    # [수정] gemini-pro -> gemini-1.5-flash (최신 모델로 변경)
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
     st.warning(f"Gemini API 설정 오류: {e}")
 
@@ -56,7 +57,7 @@ except Exception as e:
 st.set_page_config(page_title="강북청솔 학생 관리", layout="wide")
 st.title("👨‍🏫 김성만 선생님의 학생 관리 시스템")
 
-# [세션 상태 초기화] AI가 다듬은 문장을 임시 저장할 공간을 만듭니다.
+# [세션 상태 초기화] AI가 다듬은 문장을 임시 저장할 공간
 if "refined_text" not in st.session_state:
     st.session_state.refined_text = ""
 
@@ -141,15 +142,15 @@ elif menu == "학생 관리 (상담/성적)":
                             
                             [메모 내용]: {raw_input}
                             """
+                            # [여기서 에러가 났던 부분 해결!]
                             response = gemini_model.generate_content(prompt)
-                            # 결과를 임시 저장소에 넣음
+                            
                             st.session_state.refined_text = response.text
-                            st.rerun() # 화면 새로고침해서 결과 보여주기
+                            st.rerun()
 
             # 3. 최종 수정 및 저장
             st.write("🔻 **최종 저장될 내용 (직접 수정 가능)**")
             
-            # AI가 만든 문장이 있으면 그걸 보여주고, 없으면 빈칸
             final_content = st.text_area(
                 "저장하기 전에 내용을 확인하세요", 
                 value=st.session_state.refined_text, 
@@ -158,44 +159,4 @@ elif menu == "학생 관리 (상담/성적)":
 
             if st.button("💾 상담 내용 최종 저장"):
                 if final_content:
-                    if add_row_to_sheet("counseling", [selected_student, str(c_date), final_content]):
-                        st.success("상담 내용이 안전하게 저장되었습니다.")
-                        st.session_state.refined_text = "" # 저장 후 내용 비우기
-                        st.rerun()
-                else:
-                    st.warning("저장할 내용이 없습니다.")
-
-        # --- [탭 2] 성적 관리 ---
-        with tab2:
-            st.subheader("주간 성적 관리")
-            col1, col2 = st.columns(2)
-            month = col1.selectbox("월", [f"{i}월" for i in range(1, 13)])
-            week = col2.selectbox("주차", [f"{i}주차" for i in range(1, 6)])
-            period = f"{month} {week}"
-
-            with st.form("weekly_form"):
-                c1, c2, c3 = st.columns(3)
-                hw_score = c1.number_input("과제 수행(%)", 0, 100, 80)
-                score = c2.number_input("학생 점수", 0, 100, 0)
-                avg = c3.number_input("반 평균", 0, 100, 0)
-                memo = st.text_area("특이사항 (선생님 메모)")
-                
-                if st.form_submit_button("성적 저장"):
-                    if add_row_to_sheet("weekly", [selected_student, period, hw_score, score, avg, memo]):
-                        st.success("성적 저장 완료!")
-
-            df_weekly = load_data_from_sheet("weekly")
-            if not df_weekly.empty:
-                my_weekly = df_weekly[df_weekly["이름"] == selected_student]
-                if not my_weekly.empty:
-                    st.write("#### 📈 성적 변화")
-                    st.line_chart(my_weekly[["시기", "점수", "평균"]].set_index("시기"))
-                    
-                    st.write("#### 📩 학부모 문자 생성")
-                    last_rec = my_weekly.iloc[-1]
-                    st.table(pd.DataFrame({"항목": ["시기", "점수", "과제", "특이사항"], "내용": [last_rec['시기'], f"{last_rec['점수']}점", f"{last_rec['과제']}%", last_rec['메모']]}))
-                    
-                    if st.button("🤖 Gemini 문자 생성"):
-                         prompt = f"학부모 문자 작성. 학생:{selected_student}, 시기:{last_rec['시기']}, 점수:{last_rec['점수']}, 과제:{last_rec['과제']}%, 내용:{last_rec['메모']}. 정중하게."
-                         with st.spinner("작성 중..."):
-                            st.text_area("문자 내용", gemini_model.generate_content(prompt).text)
+                    if add_row
