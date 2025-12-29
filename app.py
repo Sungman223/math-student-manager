@@ -47,7 +47,7 @@ def add_row_to_sheet(worksheet_name, row_data_list):
 try:
     genai.configure(api_key=st.secrets["GENAI_API_KEY"])
     # [수정] 구형 gemini-pro 대신 최신 gemini-1.5-flash 사용
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    gemini_model = genai.GenerativeModel('gemini-pro')
 except Exception as e:
     st.warning(f"Gemini API 설정 오류: {e}")
 
@@ -205,3 +205,4 @@ elif menu == "학생 관리 (상담/성적)":
                                 st.text_area("문자 내용", gemini_model.generate_content(prompt).text)
                             except Exception as e:
                                 st.error(f"AI 오류: {e}")
+
