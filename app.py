@@ -30,14 +30,27 @@ def load_data_from_sheet(worksheet_name):
         client = get_google_sheet_connection()
         if not client: return pd.DataFrame()
         sheet = client.open_by_key(GOOGLE_SHEET_KEY).worksheet(worksheet_name)
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
         
-        # 숫자 컬럼 강제 변환
+        # [핵심 수정] get_all_records() 대신 get_all_values() 사용
+        # 이유: 숫자로 오해해서 콤마를 없애거나 데이터를 누락시키는 것을 방지
+        data = sheet.get_all_values()
+        
+        if len(data) < 2: # 데이터가 없거나 헤더만 있는 경우
+             return pd.DataFrame()
+
+        # 첫 번째 줄을 제목(Header)으로 사용
+        headers = data[0]
+        rows = data[1:]
+        df = pd.DataFrame(rows, columns=headers)
+        
+        # 숫자 컬럼만 골라서 숫자로 변환 (그래프를 위해)
         numeric_cols = ['주간점수', '주간평균', '성취도점수', '성취도평균', '과제']
         for col in numeric_cols:
             if col in df.columns:
+                # 콤마(,)가 있는 숫자(예: 1,000) 처리 후 변환
+                df[col] = df[col].astype(str).str.replace(',', '')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
         return df
     except Exception as e:
         return pd.DataFrame()
@@ -92,9 +105,15 @@ elif menu == "학생 관리 (상담/성적)":
         student_list = df_students["이름"].tolist()
         selected_student = st.sidebar.selectbox("학생 선택", student_list)
         
-        info = df_students[df_students["이름"] == selected_student].iloc[0]
-        ban_txt = info['반'] if '반' in info else ''
-        st.sidebar.info(f"**{info['이름']} ({ban_txt})**\n\n🏫 {info['출신중']} ➡️ {info['배정고']}\n🏠 {info['거주지']}")
+        # 학생 정보 찾기
+        student_rows = df_students[df_students["이름"] == selected_student]
+        
+        if not student_rows.empty:
+            info = student_rows.iloc[0]
+            ban_txt = info['반'] if '반' in info else ''
+            st.sidebar.info(f"**{info['이름']} ({ban_txt})**\n\n🏫 {info['출신중']} ➡️ {info['배정고']}\n🏠 {info['거주지']}")
+        else:
+            st.sidebar.warning("학생 정보를 불러오는데 실패했습니다.")
 
         tab1, tab2, tab3 = st.tabs(["🗣️ 상담 일지", "📊 주간 학습 & 성취도 입력", "👨‍👩‍👧‍👦 학부모 전송용 리포트"])
 
@@ -105,6 +124,10 @@ elif menu == "학생 관리 (상담/성적)":
             with st.expander("📂 이전 상담 내역"):
                 if not df_c.empty:
                     logs = df_c[df_c["이름"] == selected_student]
+                    # 날짜순 정렬 시도
+                    if '날짜' in logs.columns:
+                        logs = logs.sort_values(by='날짜', ascending=False)
+                    
                     for _, r in logs.iterrows():
                         st.markdown(f"**🗓️ {r['날짜']}**")
                         st.info(r['내용'])
@@ -134,8 +157,7 @@ elif menu == "학생 관리 (상담/성적)":
                 w_sc = cc2.number_input("점수", 0, 100, 0)
                 w_av = cc3.number_input("반 평균", 0, 100, 0)
                 
-                st.info("💡 오답 번호는 **띄어쓰기**로 구분해주세요! (예: `8 10` → `8, 10`)")
-                wrong = st.text_input("주간 오답 문항", placeholder="예: 13 15 22")
+                wrong = st.text_input("주간 오답 문항", placeholder="예: 13 15 22 (띄어쓰기 또는 콤마)")
                 memo = st.text_area("특이사항 (주간 과제 관련)", height=50)
 
                 st.divider()
@@ -144,13 +166,11 @@ elif menu == "학생 관리 (상담/성적)":
                     cc4, cc5 = st.columns(2)
                     a_sc = cc4.number_input("성취도 점수", 0, 100, 0)
                     a_av = cc5.number_input("성취도 평균", 0, 100, 0)
-                    # [추가됨] 성취도 오답 입력
-                    a_wrong = st.text_input("성취도 오답 문항", placeholder="예: 21 29 30 (띄어쓰기 필수!)")
+                    a_wrong = st.text_input("성취도 오답 문항", placeholder="예: 21 29 30")
                 
                 rev = st.text_area("총평 (성취도 평가 관련)", height=80, placeholder="파란색 박스에 들어갈 내용입니다.")
 
                 if st.form_submit_button("성적 저장"):
-                    # 저장 순서에 a_wrong(성취도오답) 추가
                     row = [selected_student, period, hw, w_sc, w_av, wrong, memo, a_sc, a_av, a_wrong, rev]
                     if add_row_to_sheet("weekly", row):
                         st.success("저장 완료!")
@@ -198,22 +218,25 @@ elif menu == "학생 관리 (상담/성적)":
                         # 3. 상세 표
                         st.subheader("3️⃣ 상세 학습 내역")
                         
-                        # 오답번호 포맷팅 함수 (띄어쓰기 -> 콤마 변환)
+                        # [핵심] 오답번호 포맷팅 함수 (콤마/공백 모두 처리)
                         def format_wrong_answers(x):
                             s = str(x).strip()
                             if not s or s == '0': return ""
-                            parts = re.split(r'[\s,]+', s)
-                            return ', '.join([p for p in parts if p])
+                            # 콤마(,)를 공백으로 바꾸고 -> 공백으로 자르고 -> 다시 콤마로 합침
+                            # "1,2,3" -> "1 2 3" -> "1, 2, 3"
+                            # "1 2 3" -> "1 2 3" -> "1, 2, 3"
+                            s = s.replace(',', ' ')
+                            parts = s.split()
+                            return ', '.join(parts)
 
-                        # 주간 오답 처리
+                        # 오답 컬럼들 변환 적용
                         if '오답번호' in rep.columns:
                             rep['오답번호'] = rep['오답번호'].apply(format_wrong_answers)
                         
-                        # [NEW] 성취도 오답 처리
                         if '성취도오답' in rep.columns:
                             rep['성취도오답'] = rep['성취도오답'].apply(format_wrong_answers)
 
-                        # 표 컬럼 정의 (성취도 오답 추가)
+                        # 표 컬럼 선택
                         cols = ["시기", "과제", "주간점수", "주간평균", "오답번호", "특이사항", "성취도점수", "성취도평균", "성취도오답"]
                         real_cols = [c for c in cols if c in rep.columns]
                         disp = rep[real_cols].copy()
@@ -227,7 +250,7 @@ elif menu == "학생 관리 (상담/성적)":
                         
                         st.table(disp.set_index("시기"))
 
-                        # 4. 총평 (맨 아래 파란 박스)
+                        # 4. 총평
                         for i, r in rep.iterrows():
                             if r.get('총평'):
                                 st.info(f"**[{r['시기']} 성취도 총평]**\n\n{r['총평']}")
